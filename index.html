@@ -18,91 +18,117 @@ canvas{display:block;margin:auto;background:#26351f;border:2px solid #6b8e23}
 🌊 Wave <span id="wave">0</span><br>
 <button onclick="startWave()">Start Wave</button>
 <button onclick="startPlacing()">Place Monkey (🍌50)</button>
-<span id="msg"></span>
 </div>
 
 <canvas id="c" width="800" height="500"></canvas>
 
 <script>
-/* ================= AUDIO ================= */
-const AC=window.AudioContext||window.webkitAudioContext;
-const actx=new AC();
-let music=false;
+/* ================= AUDIO (SAFE) ================= */
+let actx = null;
+let musicStarted = false;
 
-function beep(f,t=0.15,v=0.1){
- const o=actx.createOscillator(),g=actx.createGain();
- o.frequency.value=f; o.type="square"; g.gain.value=v;
- o.connect(g).connect(actx.destination);
- o.start(); o.stop(actx.currentTime+t);
- g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+t);
+function initAudio(){
+  if(actx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  actx = new AC();
 }
 
-const sPlace=()=>beep(300,0.12,0.12);
-const sUpgrade=()=>beep(500,0.12,0.12);
-const sShoot=()=>beep(800,0.1,0.08);
-const sError=()=>beep(120,0.25,0.15);
-const sStomp=()=>beep(90,0.2,0.15);
+function beep(freq, dur=0.15, vol=0.1){
+  if(!actx) return;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.frequency.value = freq;
+  o.type = "square";
+  g.gain.value = vol;
+  o.connect(g).connect(actx.destination);
+  o.start();
+  g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+  o.stop(actx.currentTime + dur);
+}
+
+const sPlace = ()=>beep(300,0.12,0.12);
+const sShoot = ()=>beep(800,0.1,0.08);
+const sError = ()=>beep(120,0.25,0.15);
+const sStomp = ()=>beep(90,0.2,0.15);
 
 function startMusic(){
- if(music) return; music=true;
- setInterval(()=>beep(220,0.4,0.03),500);
+  if(!actx || musicStarted) return;
+  musicStarted = true;
+  setInterval(()=>beep(220,0.4,0.03),500);
 }
 
 /* ================= GAME ================= */
-const c=document.getElementById("c"),ctx=c.getContext("2d");
-let lives=20,bananas=200,wave=0,placing=false;
-const MAX_TOWERS=15,MIN_DIST=40;
-let enemies=[],towers=[],bullets=[],fx=[];
-const path=[{x:0,y:250},{x:200,y:250},{x:200,y:100},{x:500,y:100},{x:500,y:400},{x:800,y:400}];
-let mouse={x:0,y:0};
+const c = document.getElementById("c");
+const ctx = c.getContext("2d");
+
+let lives=20, bananas=200, wave=0, placing=false;
+const MAX_TOWERS=15, MIN_DIST=40;
+
+const enemies=[], towers=[], bullets=[], fx=[];
+const path=[
+ {x:0,y:250},{x:200,y:250},{x:200,y:100},
+ {x:500,y:100},{x:500,y:400},{x:800,y:400}
+];
+
+const mouse={x:0,y:0};
 
 class FX{
- constructor(x,y){this.x=x;this.y=y;this.t=15}
+ constructor(x,y){this.x=x;this.y=y;this.t=15;}
  draw(){
-  ctx.fillStyle="rgba(255,255,0,"+(this.t/15)+")";
-  ctx.beginPath();ctx.arc(this.x,this.y,10-this.t/2,0,6.28);ctx.fill();
+  ctx.fillStyle=`rgba(255,255,0,${this.t/15})`;
+  ctx.beginPath();
+  ctx.arc(this.x,this.y,10-this.t/2,0,Math.PI*2);
+  ctx.fill();
   this.t--;
  }
 }
 
 class Enemy{
  constructor(){
-  this.x=path[0].x;this.y=path[0].y;
-  this.i=0;this.hp=80+wave*15;this.max=this.hp;
-  this.spd=1+wave*0.05;this.step=0;
+  this.x=path[0].x; this.y=path[0].y;
+  this.i=0; this.hp=80+wave*15; this.max=this.hp;
+  this.spd=1+wave*0.05; this.step=0;
  }
  update(){
-  this.step++; if(this.step%45===0)sStomp();
-  const t=path[this.i+1]; if(!t){lives--;return false;}
-  const dx=t.x-this.x,dy=t.y-this.y,d=Math.hypot(dx,dy);
-  if(d<this.spd)this.i++; else{this.x+=dx/d*this.spd;this.y+=dy/d*this.spd;}
+  this.step++; if(this.step%45===0) sStomp();
+  const t=path[this.i+1];
+  if(!t){lives--; return false;}
+  const dx=t.x-this.x, dy=t.y-this.y, d=Math.hypot(dx,dy);
+  if(d<this.spd) this.i++;
+  else {this.x+=dx/d*this.spd; this.y+=dy/d*this.spd;}
   return true;
  }
  draw(){
-  ctx.fillStyle="#444";ctx.beginPath();ctx.arc(this.x,this.y,14,0,6.28);ctx.fill();
-  ctx.fillStyle="red";ctx.fillRect(this.x-16,this.y-22,(this.hp/this.max)*32,4);
+  ctx.fillStyle="#444";
+  ctx.beginPath(); ctx.arc(this.x,this.y,14,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle="red";
+  ctx.fillRect(this.x-16,this.y-22,(this.hp/this.max)*32,4);
  }
 }
 
 class Tower{
  constructor(x,y){
-  this.x=x;this.y=y;
-  this.r=150;this.cd=0;this.rate=25;this.dmg=20;
+  this.x=x; this.y=y;
+  this.r=150; this.cd=0; this.rate=25; this.dmg=20;
  }
  update(){
-  if(this.cd>0){this.cd--;return;}
+  if(this.cd>0){this.cd--; return;}
   const e=enemies.find(e=>Math.hypot(e.x-this.x,e.y-this.y)<=this.r);
-  if(e){bullets.push({x:this.x,y:this.y,e,d:this.dmg});this.cd=this.rate;sShoot();}
+  if(e){
+    bullets.push({x:this.x,y:this.y,e,d:this.dmg});
+    this.cd=this.rate;
+    sShoot();
+  }
  }
  draw(){
   ctx.fillStyle="#8b5a2b";
-  ctx.beginPath();ctx.arc(this.x,this.y,16,0,6.28);ctx.fill();
+  ctx.beginPath(); ctx.arc(this.x,this.y,16,0,Math.PI*2); ctx.fill();
  }
 }
 
 function validSpot(x,y){
- if(path.some((p,i)=>i&&Math.hypot(p.x-x,p.y-y)<40))return false;
- if(towers.some(t=>Math.hypot(t.x-x,t.y-y)<MIN_DIST))return false;
+ if(path.some(p=>Math.hypot(p.x-x,p.y-y)<40)) return false;
+ if(towers.some(t=>Math.hypot(t.x-x,t.y-y)<MIN_DIST)) return false;
  return true;
 }
 
@@ -113,38 +139,50 @@ c.onmousemove=e=>{
 };
 
 c.onclick=()=>{
- actx.resume(); startMusic();
+ initAudio();
+ startMusic();
+
  if(!placing) return;
- if(bananas<50||towers.length>=MAX_TOWERS||!validSpot(mouse.x,mouse.y)){
-  sError();return;
+ if(bananas<50 || towers.length>=MAX_TOWERS || !validSpot(mouse.x,mouse.y)){
+  sError(); return;
  }
  towers.push(new Tower(mouse.x,mouse.y));
- bananas-=50; placing=false; sPlace();
+ bananas-=50;
+ placing=false;
+ sPlace();
 };
 
 function startPlacing(){ placing=true; }
 
 function startWave(){
- if(enemies.length){sError();return;}
+ if(enemies.length){ sError(); return; }
+ initAudio(); startMusic();
  wave++;
- for(let i=0;i<6+wave*2;i++)setTimeout(()=>enemies.push(new Enemy()),i*400);
+ for(let i=0;i<6+wave*2;i++)
+  setTimeout(()=>enemies.push(new Enemy()), i*400);
 }
 
 /* ================= LOOP ================= */
 function drawPath(){
- ctx.strokeStyle="#6b8e23";ctx.lineWidth=30;
- ctx.beginPath();ctx.moveTo(path[0].x,path[0].y);
- path.forEach(p=>ctx.lineTo(p.x,p.y));ctx.stroke();
+ ctx.strokeStyle="#6b8e23"; ctx.lineWidth=30;
+ ctx.beginPath();
+ ctx.moveTo(path[0].x,path[0].y);
+ path.forEach(p=>ctx.lineTo(p.x,p.y));
+ ctx.stroke();
 }
 
 function loop(){
- ctx.clearRect(0,0,800,500); drawPath();
+ ctx.clearRect(0,0,800,500);
+ drawPath();
 
  towers.forEach(t=>{t.update();t.draw();});
 
  if(placing){
-  ctx.strokeStyle=validSpot(mouse.x,mouse.y)?"rgba(0,255,0,.4)":"rgba(255,0,0,.4)";
-  ctx.beginPath();ctx.arc(mouse.x,mouse.y,150,0,6.28);ctx.stroke();
+  ctx.strokeStyle=validSpot(mouse.x,mouse.y)
+   ?"rgba(0,255,0,.4)":"rgba(255,0,0,.4)";
+  ctx.beginPath();
+  ctx.arc(mouse.x,mouse.y,150,0,Math.PI*2);
+  ctx.stroke();
  }
 
  for(let i=enemies.length-1;i>=0;i--){
@@ -153,16 +191,26 @@ function loop(){
  }
 
  for(let i=bullets.length-1;i>=0;i--){
-  const b=bullets[i],dx=b.e.x-b.x,dy=b.e.y-b.y,d=Math.hypot(dx,dy);
-  if(d<6){b.e.hp-=b.d;fx.push(new FX(b.x,b.y));bullets.splice(i,1);
-   if(b.e.hp<=0){bananas+=15;enemies.splice(enemies.indexOf(b.e),1);}
-   continue;
+  const b=bullets[i], dx=b.e.x-b.x, dy=b.e.y-b.y, d=Math.hypot(dx,dy);
+  if(d<6){
+    b.e.hp-=b.d;
+    fx.push(new FX(b.x,b.y));
+    bullets.splice(i,1);
+    if(b.e.hp<=0){
+      bananas+=15;
+      enemies.splice(enemies.indexOf(b.e),1);
+    }
+    continue;
   }
   b.x+=dx/d*6; b.y+=dy/d*6;
-  ctx.fillStyle="yellow";ctx.beginPath();ctx.arc(b.x,b.y,3,0,6.28);ctx.fill();
+  ctx.fillStyle="yellow";
+  ctx.beginPath(); ctx.arc(b.x,b.y,3,0,Math.PI*2); ctx.fill();
  }
 
- fx=fx.filter(f=>{f.draw();return f.t>0});
+ for(let i=fx.length-1;i>=0;i--){
+  fx[i].draw();
+  if(fx[i].t<=0) fx.splice(i,1);
+ }
 
  document.getElementById("lives").textContent=lives;
  document.getElementById("bananas").textContent=bananas;
