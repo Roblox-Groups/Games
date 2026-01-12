@@ -1,34 +1,34 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Tower Defense</title>
+<title>Monkey Tower Defense</title>
 
 <style>
 body {
   margin: 0;
-  background: #0e0e0e;
+  background: #0d120b;
   color: white;
   font-family: Arial;
   text-align: center;
 }
 
 #ui {
-  background: #151515;
+  background: #1b2415;
   padding: 10px;
 }
 
 button {
-  background: #2b2b2b;
+  background: #3a4a2b;
   color: white;
-  border: 1px solid #555;
+  border: 1px solid #6b8e23;
   padding: 8px;
   margin: 3px;
   cursor: pointer;
 }
 
 button:hover {
-  background: #444;
+  background: #556b2f;
 }
 
 #upgradePanel {
@@ -39,8 +39,8 @@ button:hover {
 canvas {
   display: block;
   margin: auto;
-  background: #222;
-  border: 2px solid #444;
+  background: #2b3a1f;
+  border: 2px solid #556b2f;
 }
 </style>
 </head>
@@ -49,17 +49,17 @@ canvas {
 
 <div id="ui">
   ❤️ <span id="lives">20</span>
-  💰 <span id="money">150</span>
+  🍌 <span id="bananas">150</span>
   🌊 Wave <span id="wave">0</span><br>
 
   <button onclick="startWave()">Start Wave</button>
-  <button onclick="placingTower=true">Place Tower ($50)</button>
+  <button onclick="placingTower=true">Place Monkey (🍌50)</button>
 
   <div id="upgradePanel">
-    <h4>Upgrade Tower</h4>
-    <button onclick="upgrade('damage')">Damage ($30)</button>
-    <button onclick="upgrade('range')">Range ($30)</button>
-    <button onclick="upgrade('fireRate')">Fire Rate ($30)</button>
+    <h4>Upgrade Monkey</h4>
+    <button onclick="upgrade('damage')">Stronger Throws (🍌30)</button>
+    <button onclick="upgrade('range')">Better Aim (🍌30)</button>
+    <button onclick="upgrade('fireRate')">Faster Throws (🍌30)</button>
   </div>
 </div>
 
@@ -70,7 +70,7 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 let lives = 20;
-let money = 150;
+let bananas = 150;
 let wave = 0;
 let placingTower = false;
 let selectedTower = null;
@@ -82,28 +82,25 @@ const path = [
 
 const enemies=[], towers=[], bullets=[];
 
-// ---------- CLASSES ----------
-
+// ---------- ENEMY (GORILLA) ----------
 class Enemy {
   constructor() {
     this.x = path[0].x;
     this.y = path[0].y;
     this.hp = 60 + wave * 15;
     this.maxHp = this.hp;
-    this.speed = 1.2 + wave * 0.03;
+    this.speed = 1.1 + wave * 0.03;
     this.index = 0;
   }
 
   update() {
-    let t = path[this.index+1];
+    const t = path[this.index+1];
     if (!t) {
       lives--;
       return false;
     }
-
-    let dx=t.x-this.x, dy=t.y-this.y;
-    let d=Math.hypot(dx,dy);
-
+    const dx=t.x-this.x, dy=t.y-this.y;
+    const d=Math.hypot(dx,dy);
     if (d < this.speed) this.index++;
     else {
       this.x+=dx/d*this.speed;
@@ -113,16 +110,26 @@ class Enemy {
   }
 
   draw() {
-    ctx.fillStyle="red";
+    // body
+    ctx.fillStyle="#3a3a3a";
     ctx.beginPath();
-    ctx.arc(this.x,this.y,12,0,Math.PI*2);
+    ctx.arc(this.x,this.y,14,0,Math.PI*2);
     ctx.fill();
 
+    // eyes
+    ctx.fillStyle="red";
+    ctx.beginPath();
+    ctx.arc(this.x-4,this.y-3,2,0,Math.PI*2);
+    ctx.arc(this.x+4,this.y-3,2,0,Math.PI*2);
+    ctx.fill();
+
+    // HP bar
     ctx.fillStyle="lime";
-    ctx.fillRect(this.x-15,this.y-20,(this.hp/this.maxHp)*30,4);
+    ctx.fillRect(this.x-16,this.y-22,(this.hp/this.maxHp)*32,4);
   }
 }
 
+// ---------- TOWER (MONKEY) ----------
 class Tower {
   constructor(x,y){
     this.x=x; this.y=y;
@@ -134,8 +141,8 @@ class Tower {
   }
 
   update(){
-    if(this.cooldown>0){this.cooldown--; return;}
-    let target=enemies.find(e=>Math.hypot(e.x-this.x,e.y-this.y)<=this.range);
+    if(this.cooldown>0){this.cooldown--;return;}
+    const target=enemies.find(e=>Math.hypot(e.x-this.x,e.y-this.y)<=this.range);
     if(target){
       bullets.push(new Bullet(this,target));
       this.cooldown=this.fireRate;
@@ -145,13 +152,29 @@ class Tower {
 
   draw(){
     if(this.recoil>0) this.recoil--;
-    ctx.fillStyle=this===selectedTower?"yellow":"cyan";
+
+    // ears
+    ctx.fillStyle="#8b5a2b";
+    ctx.beginPath();
+    ctx.arc(this.x-14,this.y,6,0,Math.PI*2);
+    ctx.arc(this.x+14,this.y,6,0,Math.PI*2);
+    ctx.fill();
+
+    // head
+    ctx.fillStyle=this===selectedTower?"#ffd700":"#a0522d";
     ctx.beginPath();
     ctx.arc(this.x,this.y,15-this.recoil,0,Math.PI*2);
     ctx.fill();
 
+    // eyes
+    ctx.fillStyle="black";
+    ctx.beginPath();
+    ctx.arc(this.x-4,this.y-3,2,0,Math.PI*2);
+    ctx.arc(this.x+4,this.y-3,2,0,Math.PI*2);
+    ctx.fill();
+
     if(this===selectedTower){
-      ctx.strokeStyle="rgba(255,255,255,0.2)";
+      ctx.strokeStyle="rgba(255,255,255,0.25)";
       ctx.beginPath();
       ctx.arc(this.x,this.y,this.range,0,Math.PI*2);
       ctx.stroke();
@@ -159,6 +182,7 @@ class Tower {
   }
 }
 
+// ---------- BANANA BULLET ----------
 class Bullet{
   constructor(t,e){
     this.x=t.x; this.y=t.y;
@@ -168,8 +192,8 @@ class Bullet{
   }
 
   update(){
-    let dx=this.e.x-this.x, dy=this.e.y-this.y;
-    let d=Math.hypot(dx,dy);
+    const dx=this.e.x-this.x, dy=this.e.y-this.y;
+    const d=Math.hypot(dx,dy);
     if(d<6){
       this.e.hp-=this.dmg;
       return false;
@@ -180,15 +204,14 @@ class Bullet{
   }
 
   draw(){
-    ctx.fillStyle="orange";
+    ctx.fillStyle="yellow";
     ctx.beginPath();
-    ctx.arc(this.x,this.y,4,0,Math.PI*2);
+    ctx.ellipse(this.x,this.y,4,2,0,0,Math.PI*2);
     ctx.fill();
   }
 }
 
 // ---------- GAME ----------
-
 function startWave(){
   wave++;
   for(let i=0;i<8+wave*2;i++){
@@ -197,21 +220,21 @@ function startWave(){
 }
 
 function upgrade(type){
-  if(!selectedTower||money<30) return;
-  money-=30;
+  if(!selectedTower||bananas<30) return;
+  bananas-=30;
   if(type==="damage") selectedTower.damage+=8;
   if(type==="range") selectedTower.range+=20;
   if(type==="fireRate") selectedTower.fireRate=Math.max(10,selectedTower.fireRate-4);
 }
 
 canvas.onclick=e=>{
-  let r=canvas.getBoundingClientRect();
-  let x=e.clientX-r.left,y=e.clientY-r.top;
+  const r=canvas.getBoundingClientRect();
+  const x=e.clientX-r.left, y=e.clientY-r.top;
 
   selectedTower=null;
   document.getElementById("upgradePanel").style.display="none";
 
-  for(let t of towers){
+  for(const t of towers){
     if(Math.hypot(t.x-x,t.y-y)<15){
       selectedTower=t;
       document.getElementById("upgradePanel").style.display="block";
@@ -219,15 +242,15 @@ canvas.onclick=e=>{
     }
   }
 
-  if(placingTower && money>=50){
+  if(placingTower && bananas>=50){
     towers.push(new Tower(x,y));
-    money-=50;
+    bananas-=50;
     placingTower=false;
   }
 };
 
 function drawPath(){
-  ctx.strokeStyle="#555";
+  ctx.strokeStyle="#6b8e23";
   ctx.lineWidth=30;
   ctx.beginPath();
   ctx.moveTo(path[0].x,path[0].y);
@@ -243,7 +266,7 @@ function loop(){
 
   for(let i=enemies.length-1;i>=0;i--){
     if(!enemies[i].update()){enemies.splice(i,1);continue;}
-    if(enemies[i].hp<=0){money+=15;enemies.splice(i,1);}
+    if(enemies[i].hp<=0){bananas+=15;enemies.splice(i,1);}
     else enemies[i].draw();
   }
 
@@ -253,7 +276,7 @@ function loop(){
   }
 
   document.getElementById("lives").textContent=lives;
-  document.getElementById("money").textContent=money;
+  document.getElementById("bananas").textContent=bananas;
   document.getElementById("wave").textContent=wave;
 
   if(lives<=0){alert("Game Over");location.reload();}
