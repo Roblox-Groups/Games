@@ -1,304 +1,175 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Monkey Tower Defense</title>
-
 <style>
-body {
-  margin: 0;
-  background: #0f130c;
-  color: #eee;
-  font-family: Arial;
-  text-align: center;
-}
-#ui {
-  background: #1c2416;
-  padding: 10px;
-}
-button {
-  background: #3a4a2b;
-  color: #eee;
-  border: 1px solid #6b8e23;
-  padding: 8px;
-  margin: 3px;
-  cursor: pointer;
-}
-canvas {
-  display: block;
-  margin: auto;
-  background: #2a3720;
-  border: 2px solid #5a7d2b;
-}
-#upgradePanel { display:none; }
+body{margin:0;background:#0e140c;color:#eee;font-family:Arial;text-align:center}
+#ui{background:#1d2616;padding:10px}
+button{background:#3c4b2a;color:#eee;border:1px solid #7da34a;padding:8px;margin:4px;cursor:pointer}
+canvas{display:block;margin:auto;background:#26351f;border:2px solid #6b8e23}
 </style>
 </head>
-
 <body>
 
 <div id="ui">
-  ❤️ <span id="lives">20</span>
-  🍌 <span id="bananas">150</span>
-  🌊 Wave <span id="wave">0</span><br>
-  <button onclick="startWave()">Start Wave</button>
-  <button onclick="startPlacing()">Place Monkey (🍌50)</button>
-  <div id="upgradePanel">
-    <button onclick="upgrade('damage')">Damage 🍌30</button>
-    <button onclick="upgrade('range')">Range 🍌30</button>
-    <button onclick="upgrade('fireRate')">Speed 🍌30</button>
-  </div>
+❤️ <span id="lives">20</span>
+🍌 <span id="bananas">200</span>
+🌊 Wave <span id="wave">0</span><br>
+<button onclick="startWave()">Start Wave</button>
+<button onclick="startPlacing()">Place Monkey (🍌50)</button>
+<span id="msg"></span>
 </div>
 
-<canvas id="game" width="800" height="500"></canvas>
+<canvas id="c" width="800" height="500"></canvas>
 
 <script>
-/* ===================== AUDIO ===================== */
-const AudioCtx = window.AudioContext || window.webkitAudioContext;
-const audioCtx = new AudioCtx();
-let musicStarted = false;
+/* ================= AUDIO ================= */
+const AC=window.AudioContext||window.webkitAudioContext;
+const actx=new AC();
+let music=false;
 
-function playShootSound(){
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.type = "square";
-  o.frequency.value = 600;
-  g.gain.value = 0.08;
-  o.connect(g).connect(audioCtx.destination);
-  o.start();
-  o.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.1);
-  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
-  o.stop(audioCtx.currentTime + 0.15);
+function beep(f,t=0.15,v=0.1){
+ const o=actx.createOscillator(),g=actx.createGain();
+ o.frequency.value=f; o.type="square"; g.gain.value=v;
+ o.connect(g).connect(actx.destination);
+ o.start(); o.stop(actx.currentTime+t);
+ g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+t);
 }
 
-function playStompSound(){
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.type = "sine";
-  o.frequency.value = 90;
-  g.gain.value = 0.12;
-  o.connect(g).connect(audioCtx.destination);
-  o.start();
-  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
-  o.stop(audioCtx.currentTime + 0.2);
-}
+const sPlace=()=>beep(300,0.12,0.12);
+const sUpgrade=()=>beep(500,0.12,0.12);
+const sShoot=()=>beep(800,0.1,0.08);
+const sError=()=>beep(120,0.25,0.15);
+const sStomp=()=>beep(90,0.2,0.15);
 
-// simple looping jungle-style music
 function startMusic(){
-  if(musicStarted) return;
-  musicStarted = true;
-
-  const notes = [220, 246, 196, 174];
-  let i = 0;
-
-  setInterval(() => {
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.type = "triangle";
-    o.frequency.value = notes[i % notes.length];
-    g.gain.value = 0.04;
-    o.connect(g).connect(audioCtx.destination);
-    o.start();
-    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
-    o.stop(audioCtx.currentTime + 0.4);
-    i++;
-  }, 450);
+ if(music) return; music=true;
+ setInterval(()=>beep(220,0.4,0.03),500);
 }
 
-/* ===================== GAME ===================== */
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+/* ================= GAME ================= */
+const c=document.getElementById("c"),ctx=c.getContext("2d");
+let lives=20,bananas=200,wave=0,placing=false;
+const MAX_TOWERS=15,MIN_DIST=40;
+let enemies=[],towers=[],bullets=[],fx=[];
+const path=[{x:0,y:250},{x:200,y:250},{x:200,y:100},{x:500,y:100},{x:500,y:400},{x:800,y:400}];
+let mouse={x:0,y:0};
 
-let lives = 20, bananas = 150, wave = 0;
-let placingTower = false, selectedTower = null;
-let ghostPos = {x:0,y:0}, gameEnded = false, shake = 0;
-
-const path = [
-  {x:0,y:250},{x:200,y:250},{x:200,y:100},
-  {x:500,y:100},{x:500,y:400},{x:800,y:400}
-];
-
-const enemies=[], towers=[], bullets=[];
-
-class Enemy {
-  constructor(){
-    this.x=path[0].x; this.y=path[0].y;
-    this.hp=60+wave*12; this.maxHp=this.hp;
-    this.speed=1+wave*0.03;
-    this.i=0; this.size=12+Math.random()*4;
-    this.stepTimer=0;
-  }
-  update(){
-    this.stepTimer++;
-    if(this.stepTimer>40){ playStompSound(); this.stepTimer=0; }
-
-    const t=path[this.i+1];
-    if(!t){ lives--; return false; }
-    const dx=t.x-this.x, dy=t.y-this.y;
-    const d=Math.hypot(dx,dy);
-    if(d<this.speed) this.i++;
-    else { this.x+=dx/d*this.speed; this.y+=dy/d*this.speed; }
-    return true;
-  }
-  draw(){
-    ctx.fillStyle="#3b3b3b";
-    ctx.beginPath(); ctx.arc(this.x,this.y,this.size,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle="red";
-    ctx.beginPath();
-    ctx.arc(this.x-4,this.y-3,2,0,Math.PI*2);
-    ctx.arc(this.x+4,this.y-3,2,0,Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle="lime";
-    ctx.fillRect(this.x-16,this.y-22,(this.hp/this.maxHp)*32,4);
-  }
+class FX{
+ constructor(x,y){this.x=x;this.y=y;this.t=15}
+ draw(){
+  ctx.fillStyle="rgba(255,255,0,"+(this.t/15)+")";
+  ctx.beginPath();ctx.arc(this.x,this.y,10-this.t/2,0,6.28);ctx.fill();
+  this.t--;
+ }
 }
 
-class Tower {
-  constructor(x,y){
-    this.x=x; this.y=y;
-    this.range=160; this.fireRate=28;
-    this.cooldown=0; this.damage=22;
-  }
-  update(){
-    if(this.cooldown>0){this.cooldown--; return;}
-    const t=enemies.find(e=>Math.hypot(e.x-this.x,e.y-this.y)<=this.range);
-    if(t){
-      bullets.push(new Bullet(this,t));
-      playShootSound();
-      this.cooldown=this.fireRate;
-    }
-  }
-  draw(ghost=false){
-    ctx.globalAlpha=ghost?0.5:1;
-    ctx.fillStyle="#8b5a2b";
-    ctx.beginPath();
-    ctx.arc(this.x-14,this.y,6,0,Math.PI*2);
-    ctx.arc(this.x+14,this.y,6,0,Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle=this===selectedTower?"#ffd700":"#a0522d";
-    ctx.beginPath(); ctx.arc(this.x,this.y,15,0,Math.PI*2); ctx.fill();
-    ctx.globalAlpha=1;
-  }
+class Enemy{
+ constructor(){
+  this.x=path[0].x;this.y=path[0].y;
+  this.i=0;this.hp=80+wave*15;this.max=this.hp;
+  this.spd=1+wave*0.05;this.step=0;
+ }
+ update(){
+  this.step++; if(this.step%45===0)sStomp();
+  const t=path[this.i+1]; if(!t){lives--;return false;}
+  const dx=t.x-this.x,dy=t.y-this.y,d=Math.hypot(dx,dy);
+  if(d<this.spd)this.i++; else{this.x+=dx/d*this.spd;this.y+=dy/d*this.spd;}
+  return true;
+ }
+ draw(){
+  ctx.fillStyle="#444";ctx.beginPath();ctx.arc(this.x,this.y,14,0,6.28);ctx.fill();
+  ctx.fillStyle="red";ctx.fillRect(this.x-16,this.y-22,(this.hp/this.max)*32,4);
+ }
 }
 
-class Bullet {
-  constructor(t,e){ this.x=t.x; this.y=t.y; this.e=e; this.dmg=t.damage; }
-  update(){
-    const dx=this.e.x-this.x, dy=this.e.y-this.y;
-    const d=Math.hypot(dx,dy);
-    if(d<6){ this.e.hp-=this.dmg; shake=6; return false; }
-    this.x+=dx/d*6; this.y+=dy/d*6;
-    return true;
-  }
-  draw(){
-    ctx.fillStyle="yellow";
-    ctx.beginPath();
-    ctx.ellipse(this.x,this.y,4,2,0,0,Math.PI*2);
-    ctx.fill();
-  }
+class Tower{
+ constructor(x,y){
+  this.x=x;this.y=y;
+  this.r=150;this.cd=0;this.rate=25;this.dmg=20;
+ }
+ update(){
+  if(this.cd>0){this.cd--;return;}
+  const e=enemies.find(e=>Math.hypot(e.x-this.x,e.y-this.y)<=this.r);
+  if(e){bullets.push({x:this.x,y:this.y,e,d:this.dmg});this.cd=this.rate;sShoot();}
+ }
+ draw(){
+  ctx.fillStyle="#8b5a2b";
+  ctx.beginPath();ctx.arc(this.x,this.y,16,0,6.28);ctx.fill();
+ }
 }
 
-/* ===================== INPUT ===================== */
-function startPlacing(){ if(bananas>=50) placingTower=true; }
+function validSpot(x,y){
+ if(path.some((p,i)=>i&&Math.hypot(p.x-x,p.y-y)<40))return false;
+ if(towers.some(t=>Math.hypot(t.x-x,t.y-y)<MIN_DIST))return false;
+ return true;
+}
 
-canvas.onmousemove=e=>{
-  const r=canvas.getBoundingClientRect();
-  ghostPos.x=e.clientX-r.left;
-  ghostPos.y=e.clientY-r.top;
+/* ================= INPUT ================= */
+c.onmousemove=e=>{
+ const r=c.getBoundingClientRect();
+ mouse.x=e.clientX-r.left; mouse.y=e.clientY-r.top;
 };
 
-canvas.onclick=e=>{
-  audioCtx.resume();
-  startMusic();
-
-  if(gameEnded){ location.reload(); return; }
-
-  const r=canvas.getBoundingClientRect();
-  const x=e.clientX-r.left, y=e.clientY-r.top;
-
-  selectedTower=null;
-  document.getElementById("upgradePanel").style.display="none";
-
-  for(const t of towers){
-    if(Math.hypot(t.x-x,t.y-y)<15){
-      selectedTower=t;
-      document.getElementById("upgradePanel").style.display="block";
-      return;
-    }
-  }
-
-  if(placingTower){
-    towers.push(new Tower(ghostPos.x,ghostPos.y));
-    bananas-=50;
-    placingTower=false;
-  }
+c.onclick=()=>{
+ actx.resume(); startMusic();
+ if(!placing) return;
+ if(bananas<50||towers.length>=MAX_TOWERS||!validSpot(mouse.x,mouse.y)){
+  sError();return;
+ }
+ towers.push(new Tower(mouse.x,mouse.y));
+ bananas-=50; placing=false; sPlace();
 };
 
-/* ===================== GAME ===================== */
+function startPlacing(){ placing=true; }
+
 function startWave(){
-  audioCtx.resume(); startMusic();
-  wave++;
-  for(let i=0;i<8+wave*2;i++){
-    setTimeout(()=>enemies.push(new Enemy()),i*450);
-  }
+ if(enemies.length){sError();return;}
+ wave++;
+ for(let i=0;i<6+wave*2;i++)setTimeout(()=>enemies.push(new Enemy()),i*400);
 }
 
-function upgrade(t){
-  if(!selectedTower||bananas<30) return;
-  bananas-=30;
-  if(t==="damage") selectedTower.damage+=8;
-  if(t==="range") selectedTower.range+=20;
-  if(t==="fireRate") selectedTower.fireRate=Math.max(10,selectedTower.fireRate-4);
-}
-
+/* ================= LOOP ================= */
 function drawPath(){
-  ctx.strokeStyle="#6b8e23";
-  ctx.lineWidth=30;
-  ctx.beginPath();
-  ctx.moveTo(path[0].x,path[0].y);
-  path.forEach(p=>ctx.lineTo(p.x,p.y));
-  ctx.stroke();
+ ctx.strokeStyle="#6b8e23";ctx.lineWidth=30;
+ ctx.beginPath();ctx.moveTo(path[0].x,path[0].y);
+ path.forEach(p=>ctx.lineTo(p.x,p.y));ctx.stroke();
 }
 
 function loop(){
-  ctx.save();
-  if(shake>0){
-    ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
-    shake--;
+ ctx.clearRect(0,0,800,500); drawPath();
+
+ towers.forEach(t=>{t.update();t.draw();});
+
+ if(placing){
+  ctx.strokeStyle=validSpot(mouse.x,mouse.y)?"rgba(0,255,0,.4)":"rgba(255,0,0,.4)";
+  ctx.beginPath();ctx.arc(mouse.x,mouse.y,150,0,6.28);ctx.stroke();
+ }
+
+ for(let i=enemies.length-1;i>=0;i--){
+  if(!enemies[i].update()){enemies.splice(i,1);continue;}
+  enemies[i].draw();
+ }
+
+ for(let i=bullets.length-1;i>=0;i--){
+  const b=bullets[i],dx=b.e.x-b.x,dy=b.e.y-b.y,d=Math.hypot(dx,dy);
+  if(d<6){b.e.hp-=b.d;fx.push(new FX(b.x,b.y));bullets.splice(i,1);
+   if(b.e.hp<=0){bananas+=15;enemies.splice(enemies.indexOf(b.e),1);}
+   continue;
   }
+  b.x+=dx/d*6; b.y+=dy/d*6;
+  ctx.fillStyle="yellow";ctx.beginPath();ctx.arc(b.x,b.y,3,0,6.28);ctx.fill();
+ }
 
-  ctx.clearRect(0,0,800,500);
-  drawPath();
+ fx=fx.filter(f=>{f.draw();return f.t>0});
 
-  towers.forEach(t=>{t.update();t.draw();});
+ document.getElementById("lives").textContent=lives;
+ document.getElementById("bananas").textContent=bananas;
+ document.getElementById("wave").textContent=wave;
 
-  if(placingTower){
-    ctx.strokeStyle="rgba(255,255,255,0.25)";
-    ctx.beginPath();
-    ctx.arc(ghostPos.x,ghostPos.y,160,0,Math.PI*2);
-    ctx.stroke();
-    new Tower(ghostPos.x,ghostPos.y).draw(true);
-  }
-
-  for(let i=enemies.length-1;i>=0;i--){
-    if(!enemies[i].update()){ enemies.splice(i,1); continue; }
-    if(enemies[i].hp<=0){ bananas+=15; enemies.splice(i,1); }
-    else enemies[i].draw();
-  }
-
-  for(let i=bullets.length-1;i>=0;i--){
-    if(!bullets[i].update()) bullets.splice(i,1);
-    else bullets[i].draw();
-  }
-
-  ctx.restore();
-
-  document.getElementById("lives").textContent=lives;
-  document.getElementById("bananas").textContent=bananas;
-  document.getElementById("wave").textContent=wave;
-
-  requestAnimationFrame(loop);
+ requestAnimationFrame(loop);
 }
-
 loop();
 </script>
 </body>
