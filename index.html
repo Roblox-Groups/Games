@@ -53,7 +53,7 @@ canvas {
   🌊 Wave <span id="wave">0</span><br>
 
   <button onclick="startWave()">Start Wave</button>
-  <button onclick="placingTower=true">Place Monkey (🍌50)</button>
+  <button onclick="startPlacing()">Place Monkey (🍌50)</button>
 
   <div id="upgradePanel">
     <button onclick="upgrade('damage')">Damage 🍌30</button>
@@ -72,6 +72,7 @@ let lives = 20;
 let bananas = 150;
 let wave = 0;
 let placingTower = false;
+let ghostPos = {x:0,y:0};
 let selectedTower = null;
 let gameEnded = false;
 let shake = 0;
@@ -97,10 +98,7 @@ class Enemy {
 
   update() {
     const t = path[this.i+1];
-    if (!t) {
-      lives--;
-      return false;
-    }
+    if (!t) { lives--; return false; }
     const dx=t.x-this.x, dy=t.y-this.y;
     const d=Math.hypot(dx,dy);
     if (d < this.speed) this.i++;
@@ -149,8 +147,10 @@ class Tower {
     }
   }
 
-  draw(){
+  draw(ghost=false){
     if(this.recoil>0) this.recoil--;
+
+    ctx.globalAlpha = ghost ? 0.5 : 1;
 
     ctx.fillStyle="#8b5a2b";
     ctx.beginPath();
@@ -169,12 +169,7 @@ class Tower {
     ctx.arc(this.x+4,this.y-3,2,0,Math.PI*2);
     ctx.fill();
 
-    if(this===selectedTower){
-      ctx.strokeStyle="rgba(255,255,255,0.25)";
-      ctx.beginPath();
-      ctx.arc(this.x,this.y,this.range,0,Math.PI*2);
-      ctx.stroke();
-    }
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -208,22 +203,22 @@ class Bullet{
   }
 }
 
-// ---------- GAME ----------
-function startWave(){
-  if(gameEnded) return;
-  wave++;
-  for(let i=0;i<8+wave*2;i++){
-    setTimeout(()=>enemies.push(new Enemy()),i*450);
-  }
+// ---------- PLACEMENT ----------
+function startPlacing(){
+  if(bananas<50 || gameEnded) return;
+  placingTower = true;
 }
 
-function upgrade(type){
-  if(!selectedTower||bananas<30) return;
-  bananas-=30;
-  if(type==="damage") selectedTower.damage+=8;
-  if(type==="range") selectedTower.range+=20;
-  if(type==="fireRate") selectedTower.fireRate=Math.max(10,selectedTower.fireRate-4);
-}
+canvas.addEventListener("mousemove", e=>{
+  const r=canvas.getBoundingClientRect();
+  ghostPos.x=e.clientX-r.left;
+  ghostPos.y=e.clientY-r.top;
+});
+
+canvas.addEventListener("contextmenu", e=>{
+  e.preventDefault();
+  placingTower=false;
+});
 
 canvas.onclick=e=>{
   if(gameEnded){ resetGame(); return; }
@@ -243,11 +238,28 @@ canvas.onclick=e=>{
   }
 
   if(placingTower && bananas>=50){
-    towers.push(new Tower(x,y));
+    towers.push(new Tower(ghostPos.x,ghostPos.y));
     bananas-=50;
     placingTower=false;
   }
 };
+
+// ---------- GAME ----------
+function startWave(){
+  if(gameEnded) return;
+  wave++;
+  for(let i=0;i<8+wave*2;i++){
+    setTimeout(()=>enemies.push(new Enemy()),i*450);
+  }
+}
+
+function upgrade(type){
+  if(!selectedTower||bananas<30) return;
+  bananas-=30;
+  if(type==="damage") selectedTower.damage+=8;
+  if(type==="range") selectedTower.range+=20;
+  if(type==="fireRate") selectedTower.fireRate=Math.max(10,selectedTower.fireRate-4);
+}
 
 function drawPath(){
   ctx.strokeStyle="#6b8e23";
@@ -261,40 +273,23 @@ function drawPath(){
 function gameOverScreen(){
   ctx.fillStyle="rgba(0,0,0,0.7)";
   ctx.fillRect(0,0,800,500);
-
   ctx.fillStyle="#ff5555";
   ctx.font="48px Arial";
   ctx.textAlign="center";
   ctx.fillText("GAME OVER",400,200);
-
   ctx.fillStyle="white";
   ctx.font="22px Arial";
   ctx.fillText(`You reached wave ${wave}`,400,245);
-
-  ctx.fillStyle="#222";
-  ctx.fillRect(300,280,200,45);
-  ctx.strokeStyle="#888";
-  ctx.strokeRect(300,280,200,45);
-
-  ctx.fillStyle="white";
-  ctx.fillText("Click to Retry",400,310);
+  ctx.fillText("Click to Retry",400,300);
 }
 
 function resetGame(){
-  enemies.length=0;
-  towers.length=0;
-  bullets.length=0;
-  lives=20;
-  bananas=150;
-  wave=0;
-  gameEnded=false;
+  enemies.length=0; towers.length=0; bullets.length=0;
+  lives=20; bananas=150; wave=0; gameEnded=false;
 }
 
 function loop(){
-  if(gameEnded){
-    gameOverScreen();
-    return;
-  }
+  if(gameEnded){ gameOverScreen(); return; }
 
   ctx.save();
   if(shake>0){
@@ -307,13 +302,19 @@ function loop(){
 
   towers.forEach(t=>{t.update();t.draw();});
 
+  // ghost monkey + range
+  if(placingTower){
+    ctx.strokeStyle="rgba(255,255,255,0.25)";
+    ctx.beginPath();
+    ctx.arc(ghostPos.x,ghostPos.y,160,0,Math.PI*2);
+    ctx.stroke();
+    new Tower(ghostPos.x,ghostPos.y).draw(true);
+  }
+
   for(let i=enemies.length-1;i>=0;i--){
     if(!enemies[i].update()){enemies.splice(i,1);continue;}
-    if(enemies[i].hp<=0){
-      bananas+=15;
-      shake=8;
-      enemies.splice(i,1);
-    } else enemies[i].draw();
+    if(enemies[i].hp<=0){bananas+=15;shake=8;enemies.splice(i,1);}
+    else enemies[i].draw();
   }
 
   for(let i=bullets.length-1;i>=0;i--){
